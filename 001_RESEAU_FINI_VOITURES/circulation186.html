@@ -1,0 +1,1303 @@
+﻿<!doctype html>
+<html lang = "fr">
+<head>
+<meta name = "viewport" content = "width = device-width, initial-scale=1.0" />
+<title>Circulation</title>
+<style>
+body {
+overflow: hidden;
+background-color:#000;
+font-family:Arial;
+font-size:13px;
+margin:0}
+
+p {
+text-align:left;
+height:8px;
+color:#fff}
+
+button {
+margin-right:10px;
+margin-bottom:10px;
+font-size:13px;
+color:#fff;
+width:130px;
+height:30px;
+background-color:#157;
+border-radius:6px;
+border:0}
+
+button:hover {
+background-color:#2a2;
+border-radius:6px;
+cursor:pointer;
+border:0}
+
+#planX, #plan0, #plan1, #plan2 { 
+position:absolute;
+left:0px;
+top:0px;
+display:block;
+border:0}
+
+#planX {z-index:-1; display:none;}
+#plan0 {z-index:0}
+#plan1 {z-index:1}
+#plan2 {z-index:2}
+
+#plan3 { 
+z-index:20;
+position:absolute;
+display:none;
+left:0px;
+top:0px}
+
+#btn_menu2D, #btn_menu3D {
+position:absolute;
+width:120px;
+height:30px;
+right:10px;
+bottom:10px;
+z-index:95}
+
+#btn_fermer2D, #btn_fermer3D {
+position:absolute;
+background-color:#157;
+width:40px;
+height:30px;
+top:10px;
+right:20px;
+z-index:10}
+
+#btn_fermer2D:hover {background-color: #2a2;}
+#btn_fermer3D:hover {background-color: #2a2;}   
+  
+#le_menu2D, #le_menu3D, #le_menu_edition {
+position:absolute;
+background-color:#222;
+padding:1%;
+right:10px;
+bottom:10px;
+z-index:99;
+display:none;
+opacity:0.8;
+animation-name:entree_infos;
+animation-duration:1s}
+
+@keyframes entree_infos {
+0% {right:-200px; bottom:10px}
+100% {right:10px; bottom:10px}}    
+
+#zoom {
+position:absolute;
+left:6%;
+top:9%;
+border:1px solid #fff;
+background-color:#282828;
+z-index:50;
+transform:scale(1.5, 1.5);
+display:none;
+animation-name:entree_zoom;
+animation-duration:0.5s}
+
+@keyframes entree_zoom {
+0% {left:-500px; bottom:6%}
+100% {left:1%; bottom:9%}}
+
+</style>
+<script src="../sources_P5/p5.min.js"></script> // chargement des modules p5.js
+<script src="../sources_P5/p5.dom.min.js"></script>
+
+<script>
+'use strict';
+
+const   alea            = x => Math.floor(Math.random() * x);
+const   PI2             = Math.PI * 2,
+        COULEURS        = ['#006600','#990099','#0033cc','#cc0066','#ff9933', '#ffff00', '#113311','#003366', '#666699', '#6666cc'],
+        ARRET           = 127,   // indique la couleur de la bande pour feu rouge
+        ROUTE           = 128,     // indique la couleur de la route
+        CARREFOUR       = 129,   // indique la couleur d'un carrefour
+        COUL_ARRET      = 'rgba(' + String(ARRET) + ', 128, 128, 1)',
+        COUL_ROUTE      = 'rgba(' + String(ROUTE) + ', 128, 128, 1)',
+        COUL_CARREFOUR  = 'rgba(' + String(CARREFOUR) + ', 128, 128, 1)',
+        NORMAL          = true,  // état quand une auto est sur une route
+        INTERSECTION    = false, // état quand une auto atteint une intersection 
+		PAREBRISE 		= 'rgba(177, 184, 190, 1)';
+		
+let     canW,         // largeur du plan
+        canH,         // hauteur du plan
+        canW2,
+        canH2,
+        nbco,         // nombre de colonnes 
+        nbli,         // nombre de lignes
+        tab_routes,   // tableau des routes    
+        cote,         // largeur entre deux colonnes ou lignes
+        lr,           // largeur d'une route
+        l5,           // moitié de la largeur d'une route
+        entrees,      // tableau des points d'entrée des autos
+        les_feux,     // tableau des positions des feux
+        arbres,       // tableau des arbres du plan
+		buildings,	  // tableau des buildings du plan
+		centre_ville_x,
+		centre_ville_y,
+        decor0,       // image du plan avec feux position 0
+        decor1,       // image du plan avec feux position 1
+        decor2,       // image du plan sans feux
+        zoom,         // image d'une partie du plan envoyée au zoom
+        nb_autos,     // nombre d'autos
+        nb_routes,    // nombre de routes
+        w_auto,       // longueur d'une auto
+        h_auto,       // largeur d'une auto
+        autos,        // tableau des objets autos
+        autos_data,   // tableau des images des autos 
+        cree_autos,   // ref à setInterval création des autos 
+        stop_feu,     // ref à basculement des feux
+        no,           // numéro de l'auto suivie au zoom
+        radar,        // ref contenant la valeur instantanée du radar de chaque auto
+        gauche,       // ref contenant la valeur instantanée du pt gauche de chaque auto (pour doublement)
+		droite, 	  // ref pour côté passager
+        can1w,        // ref rapide à la moitié de la taille du canvas zoom
+        can1w2,		  // divisé par deux
+        type_feu,     // état des feux tricolores (vert ou rouge)
+        flag_deco = true,     // état décor ou pas
+        aff_zoom  = false,	  // état du zoom
+        MODE_3D   = false;	  // activé ou pas
+    
+class Auto { 
+constructor() {
+	const entree    = entrees[alea(entrees.length)];            // l'entrée dans le plan
+    this.xx         = Math.floor((entree % nbco) * cote + lr);  // coord x de l'entrée et de l'objet
+    this.yy         = Math.floor( entree / nbco) * cote + lr;   // coord y de l'entrée
+    this.v_init     = 0.5 + Math.random() * lr / 30;            // vitesses initiales en x et y
+    this.vx         = this.v_init;
+    this.vy         = this.v_init;
+    this.etat       = NORMAL;
+    this.dir        = 1;
+    this.new_xx     = 0;
+    this.new_yy     = 0;
+	this.dxx		= 0;
+	this.dyy		= 0;
+    this.modele     = alea(4);
+    let index       = alea(COULEURS.length);
+    this.couleur    = COULEURS[index];
+}
+
+rouler() { // algo principal des déplacements d'une auto
+	switch (this.etat) {
+        case NORMAL:
+			this.activer_radars();
+            switch (radar) {
+                case ROUTE:     this.avancer(); 
+								break;
+                case CARREFOUR: this.changer_direction();
+								this.etat = INTERSECTION;
+                                break;
+				case ARRET:     break; // freiner 
+				default:        this.doubler();
+            } 
+            break;
+        case INTERSECTION: this.traverser();
+    }
+}
+
+activer_radars() { 
+    const rad = 1;
+	const d	= Math.floor(h_auto / 2);
+    switch(this.dir) { 
+        case 1: radar  = cx2.getImageData(this.xx,  this.yy - rad, 1, 1).data[0];
+				//droite = cx2.getImageData(this.xx - d, this.yy - rad, 1, 1).data[0];
+                gauche = cx2.getImageData(this.xx + d, this.yy, 1, 1).data[0]; break;
+        case 2: radar  = cx2.getImageData(this.xx + rad + w_auto, this.yy, 1, 1).data[0];
+				//droite = cx2.getImageData(this.xx + rad + w_auto, this.yy + d, 1, 1).data[0];
+                gauche = cx2.getImageData(this.xx + w_auto, this.yy - d, 1, 1).data[0]; break;
+        case 4: radar  = cx2.getImageData(this.xx,  this.yy + rad + w_auto, 1, 1).data[0];
+				//droite = cx2.getImageData(this.xx + h_auto - d, this.yy + rad + w_auto, 1, 1).data[0];
+                gauche = cx2.getImageData(this.xx + h_auto + d, this.yy + w_auto, 1, 1).data[0]; break;
+        case 8: radar  = cx2.getImageData(this.xx - rad, this.yy, 1, 1).data[0];
+				//droite = cx2.getImageData(this.xx - rad, this.yy + h_auto - d, 1, 1).data[0];
+                gauche = cx2.getImageData(this.xx, this.yy + h_auto + d, 1, 1).data[0];
+    }
+}
+
+avancer() {
+	this.xx += this.vx; 
+	this.yy += this.vy;
+}
+   
+changer_direction() {
+    let s;
+    let newdirs  = [];
+	let old_dir  = this.dir	
+    this.x       = Math.floor(this.xx / cote) * cote + lr;
+    this.y       = Math.floor(this.yy / cote) * cote + lr;
+	
+	// on récupère le signal aux croisements du planX des routes (cxX)
+    let signal  = (cxX.getImageData(this.x, this.y - lr, 1, 1).data[0] === ROUTE)
+                + (cxX.getImageData(this.x + lr, this.y, 1, 1).data[0] === ROUTE) * 2 
+                + (cxX.getImageData(this.x, this.y + lr, 1, 1).data[0] === ROUTE) * 4 
+                + (cxX.getImageData(this.x - lr, this.y, 1, 1).data[0] === ROUTE) * 8;
+    if (signal === 1 || signal === 2 || signal === 4 || signal === 8) {
+		this.dir = signal;
+	}
+    else {
+        switch(this.dir) {
+            case 1: s = signal & 11; break;  // 1011
+            case 2: s = signal &  7; break;  // 0111
+            case 4: s = signal & 14; break;  // 1110
+            case 8: s = signal & 13;         // 1101
+        }
+        if (s & 1) newdirs.push(1);
+        if (s & 2) newdirs.push(2);
+        if (s & 4) newdirs.push(4);
+        if (s & 8) newdirs.push(8);
+        this.dir = newdirs[alea(newdirs.length)];
+    }
+	// calcul la position en début et en sortie de croisement
+	switch(this.dir) { 
+        case 1:
+			if (old_dir === 8 || old_dir === 2) this.yy -= w_auto; // replacer auto
+			this.new_xx = this.x + l5 - h_auto;
+            this.new_yy = this.y - l5 - w_auto; break;
+        case 2:
+			if (old_dir === 1) this.yy -= w_auto; // replacer auto
+			if (old_dir === 4) this.yy += w_auto; // replacer auto
+            this.new_xx = this.x + l5 + w_auto;
+            this.new_yy = this.y + l5 - h_auto; break;
+        case 4:         
+            if (old_dir === 2) this.xx += w_auto; // replacer auto
+			this.new_xx = this.x - l5;
+            this.new_yy = this.y + l5 + w_auto; break;
+        case 8: 
+            if (old_dir === 4) this.yy += w_auto; // replacer auto
+			this.new_xx = this.x - l5 - w_auto;
+            this.new_yy = this.y - l5;
+    }
+	this.vx = this.v_init;
+	this.vy = this.v_init;
+	this.dxx = (this.new_xx - this.xx) / this.vx / l5; // calcul déplacements pour fn traverser
+	this.dyy = (this.new_yy - this.yy) / this.vy / l5;
+}
+
+traverser() {
+	this.xx += this.dxx;
+	this.yy += this.dyy;
+	if (Math.abs(this.new_xx - this.xx) < h_auto && Math.abs(this.new_yy - this.yy) < h_auto) {
+		this.etat = NORMAL;
+		this.xx = this.new_xx;
+		this.yy = this.new_yy;
+		switch(this.dir) { // recalcul de la vélocité
+			case 1: this.vx = 0; this.vy = -this.vy; break;
+			case 2: this.vy = 0; break;
+			case 4: this.vx = 0; break;
+			case 8: this.vy = 0; this.vx = -this.vx;
+		}
+	}
+}
+
+doubler() {
+	if (radar !== ROUTE && gauche === ROUTE) {
+        switch(this.dir) {
+            case 1: this.xx = this.x; break;
+            case 2: this.yy = this.y; break;
+            case 4: this.xx = this.x - h_auto; break;
+            case 8: this.yy = this.y - h_auto;
+        }
+    }
+}
+
+dessiner_2D() {	
+	cx2.fillStyle = this.couleur;
+	switch(this.dir) {
+		case 1: cx2.fillRect(this.xx, this.yy, h_auto, w_auto);
+				cx2.fillStyle = PAREBRISE;
+				cx2.fillRect(this.xx, this.yy + w_auto/6, h_auto, w_auto/4);
+				break;
+		case 2: cx2.fillRect(this.xx, this.yy, w_auto, h_auto);
+				cx2.fillStyle = PAREBRISE;
+				cx2.fillRect(this.xx + w_auto/1.7, this.yy, w_auto/4, h_auto);
+				break;
+		case 4: cx2.fillRect(this.xx, this.yy, h_auto, w_auto);
+				cx2.fillStyle = PAREBRISE;
+				cx2.fillRect(this.xx, this.yy + w_auto/1.7, h_auto, w_auto/4);
+				break;
+		case 8: cx2.fillRect(this.xx, this.yy, w_auto, h_auto);
+				cx2.fillStyle = PAREBRISE;
+				cx2.fillRect(this.xx + w_auto/6, this.yy, w_auto/4, h_auto);	
+	}
+}
+
+} // fin class Auto
+    
+// ********************************************************************************************
+// fonctions de création du plan
+
+function creer_arriere_plan_2D(cx) {
+    cx.fillStyle = 'rgba(32, 32, 32, 1)';
+    cx.fillRect(0, 0, canW, canH);
+	if (flag_deco === false) return;
+    arbres = [];
+	buildings = [];
+    let ptco, ptli, li, co, i, x_arb, y_arb, r_arb, c_arb, longu, larg;
+    for (li = -1; li < nbli; li++) {
+        for (co = -1; co < nbco; co++) {
+			ptco = co * cote + lr;
+            ptli = li * cote + lr;
+			if (li === Math.floor(nbli/2)-1  && co === Math.floor(nbco/2) ) {  // référencer le centre ville
+				cx.fillStyle = 'rgba(40, 40, 40, 1)';
+                centre_ville_x = ptco;
+				centre_ville_y = ptli;
+				cx.fillRect(ptco, ptli, cote, cote);
+				continue;
+			}
+            if (Math.random() < .6) {
+                cx.fillStyle = 'rgba(0, 51, 0, 1)';
+                cx.fillRect(ptco, ptli, cote, cote);
+                cx.save();
+                for (i = 0; i < 12; i++) {
+                    x_arb = ptco + l5 + alea(cote - 1.5 * lr);
+                    y_arb = ptli + l5 + alea(cote - 1.5 * lr);
+                    r_arb = alea(l5);
+                    c_arb = alea(120) + 60;
+                    cx.beginPath();
+                    if (i === 0) cx.fillStyle = 'blue'; // bassins
+                    else {
+						cx.fillStyle = 'rgba(0, 71, 3, 1)'; // arbres
+						arbres.push(x_arb, y_arb, r_arb, c_arb); // mettre dans tableau pour version 3D
+                    }
+                    cx.arc(x_arb, y_arb, r_arb, 0, PI2);                        
+                    cx.fill();
+                }
+                cx.restore();
+            }
+            else {
+                cx.fillStyle = 'rgba(41, 41, 41, 1)';
+                cx.fillRect(ptco, ptli, cote + 2, cote + 2);
+                cx.save();
+                for (i = 0; i < 12; i++) {
+                    cx.beginPath();
+                    if (Math.random() <.5) {
+						cx.fillStyle = 'rgba(87, 87, 87, 1)';
+					}
+                    else if (Math.random() <.5) {
+						cx.fillStyle = 'rgba(69, 69, 69, 1)';
+					}
+                    else {
+						cx.fillStyle = 'rgba(111, 100, 100, 1)';
+					}
+					cx.fillRect(ptco + l5 + alea(cote), ptli + l5 + alea(cote), alea(cote), alea(cote));
+                    longu = alea(cote);
+					larg  = alea(cote);
+					x_arb = ptco + lr + alea(cote * .55);  // x_arb = ptco place au centre des intersections
+                    y_arb = ptli + lr + alea(cote * .55);
+					if ((longu / larg < 3) && (longu > cote * 0.5)) { 
+						buildings.push(x_arb, y_arb, longu, larg, alea(cote / 2) + lr, Math.random()); 
+						// pour version 3D resp. x, y, w, h, hauteur, flag couleur
+					}
+                }
+                cx.restore();
+            }     
+        }
+    }
+}
+
+function creer_carrefours_2D(cx) {
+    let signal, li, co;
+    les_feux = [];
+    entrees  = [];
+    cx.fillStyle = COUL_CARREFOUR;
+    for (li = 0; li < nbli; li++) {
+        for (co = 0; co < nbco; co++) {
+            signal = signal_sommet(co, li);
+            if (signal === 15) {  // vrais carrefours et feux tricolores : 15 = 1 + 2 + 4 + 8 NORD + EST + SUD + OUEST               
+                les_feux.push(co * cote + lr, li * cote + lr);       // sauver les positions des feux
+            }
+            if (signal !== 5 && signal !== 10 && signal !== 0) cx.fillRect(co * cote + l5, li * cote + l5, lr, lr); // croisements
+            if (signal === 1 || signal === 2 || signal === 4 || signal === 8) {
+                if (signal_sommet(co, li - 1) === 4 ||
+                    signal_sommet(co + 1, li) === 8 ||
+                    signal_sommet(co, li + 1) === 1 ||
+                    signal_sommet(co - 1, li) === 2) { // on ne crée pas d'entrée
+                } 
+                else entrees.push(co + li * nbco); // portes d'entrée des autos
+            }
+        }
+    }
+    function signal_sommet(co, li) {
+        return (cxX.getImageData(co * cote + lr, li * cote, 1, 1).data[0] === ROUTE)
+             + (cxX.getImageData(co * cote + 2*lr, li * cote + lr, 1, 1).data[0] === ROUTE) * 2 
+             + (cxX.getImageData(co * cote + lr, li * cote + 2*lr, 1, 1).data[0] === ROUTE) * 4 
+             + (cxX.getImageData(co * cote, li * cote + lr, 1, 1).data[0] === ROUTE) * 8;
+    }
+}        
+
+function creer_calques_2D(cx) {
+    decor2 = cx.getImageData(0, 0, canW, canH);
+    placer_feux(0);
+    decor0 = cx.getImageData(0, 0, canW, canH);
+    placer_feux(0.5);
+    decor1 = cx.getImageData(0, 0, canW, canH);
+    
+	function placer_feux(a) {
+        let i, L = les_feux.length;
+        for (i = 0; i < L; i += 2) {
+            cx.save();
+            cx.translate(les_feux[i], les_feux[i + 1]);
+            cx.rotate(a * Math.PI);
+            feux_carrefour(w_auto * 2, h_auto * 2, l5 * 1.2);
+            cx.restore();
+        }
+        
+		function feux_carrefour(w, h, d) {
+            feu();
+            cx.rotate(Math.PI);
+            feu();
+            function feu() {
+                const h4 = h/4;
+                const z = 3; // largeur de la bordure d'arrêt
+                cx.save();
+                cx.fillStyle = 'black';
+                cx.fillRect(d, d, h, w);
+                cx.fillStyle = 'green';
+                cx.fillRect(d + h4, d + w / 2 + h4, h / 2, w / 4);
+                cx.fillStyle = COUL_ROUTE;
+                cx.fillRect(0, lr - z, l5, z);
+                cx.rotate(0.5 * Math.PI);
+                cx.fillStyle = 'black';
+                cx.fillRect(d, d, h, w);
+                cx.fillStyle = 'red';
+                cx.fillRect(d + h4, d + h4, h / 2, w / 4);
+                cx.fillStyle = COUL_ARRET;
+                cx.fillRect(0, lr - z, l5, z); // bordure d'arrêt
+                cx.restore();
+            }
+        }
+    }
+}
+
+// *******************************************
+// ******** fonctions de traitement ********* 
+
+function initialiser_reseau_2D(nb_rues) {
+    masquer('btn_menu2D');
+	masquer('btn_menu3D');
+	clearInterval(cree_autos);
+    clearInterval(stop_feu);
+    canW = canX.width  = can0.width  = can1.width  = can2.width  = window.innerWidth;
+    canH = canX.height = can0.height = can1.height = can2.height = window.innerHeight;       
+    canW2       = canW / 2;
+    canH2       = canH / 2;
+    can1w       = can3.height = can3.width  = canW * .2;
+    can1w2      = can3.width * .5;
+    nbli        = nb_rues;
+    lr          = Math.floor(canH / (nb_rues * 4));
+    lr          = lr + (Math.floor(lr) % 2 === 0);     // rendre impair
+    l5          = Math.floor(lr * .5); 
+    w_auto      = Math.floor(l5 * .9);       
+    h_auto      = Math.floor(w_auto * .5);
+    cote        = Math.floor((canH + 2 * lr) / nbli);
+    autos       = [];
+    nbco        = Math.floor(canW / cote);
+    if (nbco * cote < canW - lr - l5) nbco += 1;
+    masquer_zoom();
+    creer_arriere_plan_2D(cx0);
+}
+
+function mode_automatique_2D(nb_rues) {
+    initialiser_reseau_2D(nb_rues);
+    creer_routes_automatiquement_2D();
+	dessiner_les_routes_2D(cxX);
+	dessiner_les_routes_2D(cx2);
+    creer_carrefours_2D(cx2);
+    creer_calques_2D(cx2);
+    demarrer_circulation_2D();
+    
+    function creer_routes_automatiquement_2D() {
+        let index, co, li;
+        a_zero_tab_routes();
+        for (li = 0; li < nbli - 1; li++) {
+            for (co = 0; co < nbco - 1; co++) {
+                index = nbco * li + co;
+                if (Math.random() < .66) tab_routes[index] = 1;
+                if (Math.random() < .66) {
+                    if (tab_routes[index] === 0) {
+                        tab_routes[index] = 2;
+                    }
+                    else tab_routes[index] = 3;
+                }
+            }
+        }
+		cxX.clearRect(0, 0, canW, canH);
+		cx2.clearRect(0, 0, canW, canH);
+    }
+}
+
+function dessiner_les_routes_2D(cx) {
+    cx.fillStyle = COUL_ROUTE;
+    nb_routes    = 0;
+    let co, li, coo, lii;
+    for (li = 0; li < nbli; li++) {
+        for (co = 0; co < nbco; co++) {
+			coo = co * cote + l5;
+			lii = li * cote + l5;
+            switch (tab_routes[nbco * li + co]) {
+                case 1: cx.fillRect(coo, lii, cote, lr); nb_routes += 1; break;
+                case 2: cx.fillRect(coo, lii, lr, cote); nb_routes += 1; break;
+                case 3: cx.fillRect(coo, lii, cote, lr);
+                        cx.fillRect(coo, lii, lr, cote); nb_routes += 2;
+            }
+        }
+    }
+}
+
+function a_zero_tab_routes() {
+    tab_routes = [];
+    nb_routes = 0;
+    let co, li;
+    for (li = 0; li < nbli; li++) {
+        for (co = 0; co < nbco; co++) tab_routes.push(0);
+    }
+}
+
+function demarrer_circulation_2D() {
+    let compt = 0;
+    nb_autos  = nbli * nbco * 1.5;
+    montrer('le_menu2D');
+    cree_autos = setInterval(function() {
+        if (compt < nb_autos) {
+            autos.push(new Auto() );
+            compt++;
+            document.getElementById('nombre_autos').innerHTML = "Autos : " + compt;
+        } 
+        else clearInterval(cree_autos);
+    }, 20);
+    type_feu = 2;
+    feux();
+    no = 0;
+    document.getElementById('numero_autos').innerHTML = 'Auto suivie : n°' + no;
+}
+
+// **************************************
+// *******  MODULE MODE MANUEL **********
+
+function mode_manuel_2D() {
+    can2.removeEventListener('mousedown', clic_route_2D);
+    masquer('le_menu2D');
+	masquer('le_menu3D');
+    montrer('le_menu_edition');
+	montrer('plan1');
+    initialiser_reseau_2D(nbli);
+    afficher_grille_2D(cx1);
+	dessiner_les_routes_2D(cx2);
+    creer_carrefours_2D(cx2);
+    creer_calques_2D(cx2);
+    can2.addEventListener('mousedown', clic_route_2D);
+    
+    function afficher_grille_2D(cx) {
+        let co, li;
+        cx.clearRect(0, 0, canW, canH);
+        cx.fillStyle = 'rgba(120, 128, 128, 0.3)';
+        for (li = 0; li < nbli - 1 ; li++) {    
+            for (co = 0; co < nbco - 1; co++) {
+                cx.fillRect(co * cote + l5, li * cote + l5, cote, lr);
+                cx.fillRect(co * cote + l5, li * cote + l5, lr, cote);
+            }
+        }
+    }
+}
+
+function clic_route_2D(ev) {
+    let signal = cx2.getImageData(ev.clientX, ev.clientY, 1, 1).data[0];
+    let index = nbco * Math.floor(ev.clientY / cote) + Math.floor(ev.clientX / cote);
+    if ((ev.clientX > lr + (nbco - 1) * cote) || (ev.clientY > lr + nbli * cote)) return;
+    if (signal === ROUTE) {
+        if (ev.clientY % cote > l5 && ev.clientY % cote < lr + l5) {
+            tab_routes[index] -= 1;
+        }
+        else if (ev.clientX % cote > l5 && ev.clientX % cote < lr + l5) {
+            tab_routes[index] -= 2;
+        }
+        if (tab_routes[index] < 0) tab_routes[index] = 0;
+    }
+    else {
+        if (ev.clientY % cote > l5 && ev.clientY % cote < lr + l5) {
+            tab_routes[index] += 1;
+        }
+        else if (ev.offsetX % cote > l5 && ev.offsetX % cote < lr + l5) {
+            tab_routes[index] += 2;
+        }
+        if (tab_routes[index] > 3) tab_routes[index] = 3;
+    }
+    mise_a_jour_plan2D();
+}
+
+function valider_routes_2D() {
+    can2.removeEventListener('mousedown', clic_route_2D);
+    masquer('le_menu_edition');
+	masquer('plan1');
+    cx1.clearRect(0, 0, canW, canH);
+	if (nb_routes > 1) {
+		mise_a_jour_plan2D(); // nécessaire pour le cas où l'on valide sans avoir modifié le plan
+		demarrer_circulation_2D();
+	}
+    else {
+		cxX.clearRect(0, 0, canW, canH);
+        cx2.clearRect(0, 0, canW, canH);
+        mode_manuel_2D();
+    }
+}
+
+function mise_a_jour_plan2D() {
+	cxX.clearRect(0, 0, canW, canH);
+	cx2.clearRect(0, 0, canW, canH);
+	dessiner_les_routes_2D(cxX);
+    dessiner_les_routes_2D(cx2);
+    creer_carrefours_2D(cx2);
+    creer_calques_2D(cx2);
+}
+
+// *******  FIN DU MODULE MODE MANUEL **********
+
+function visualiser_2D() {
+    let auto;
+	for (auto of autos) auto.rouler();
+	switch (type_feu) {
+		case 0: cx2.putImageData(decor0, 0, 0); break;
+		case 1: cx2.putImageData(decor1, 0, 0); break;
+		case 2: cx2.putImageData(decor2, 0, 0);
+	}
+	for (auto of autos) auto.dessiner_2D();
+	if (aff_zoom === true && no < autos.length) {
+		zoom = cx2.getImageData(autos[no].xx - can1w2, autos[no].yy - can1w2, can1w, can1w);
+		cx3.putImageData(zoom, 0, 0);
+	}
+}
+
+// *********************************************
+// *******  GESTION DE L'INTERACTIVITE 2D *********
+
+function effacer_plan_2D() {
+    a_zero_tab_routes();
+    mode_manuel_2D();        
+}
+
+function feux() {
+    switch (type_feu) {
+        case 0:
+        case 1: type_feu = 2; 
+                fire.innerHTML = 'Activer les feux';
+                clearInterval(stop_feu); break;
+        case 2: type_feu = 0; 
+                stop_feu = setInterval(function() { type_feu = 1 - type_feu;}, 6000);
+                fire.innerHTML = 'Enlever les feux';
+    }
+}
+
+function choisir_auto(ev) {    
+    no = 0;
+    let x = ev.offsetX, y = ev.offsetY, auto;
+    for(auto of autos) {
+        if ((x >= auto.xx - l5) && (x <= auto.xx + l5) &&
+            (y >= auto.yy - l5) && (y <= auto.yy + l5)) {
+            break;
+        }
+        no++;
+    }
+    if (no < autos.length) {
+        document.getElementById('numero_autos').innerHTML = 'Auto suivie : n°' + no;
+        can3.style.display = 'block';
+    }
+    aff_zoom = true;
+}
+
+function mettre_en_pause() {
+    if (btn_pause.innerHTML === 'Jouer') { 
+        loop(); 
+        btn_pause.innerHTML = 'Mettre en pause';
+    }
+    else {
+        noLoop();
+        btn_pause.innerHTML = 'Jouer';
+    }
+}
+
+function ajouter_autos() {
+    let i;
+    for (i = 0; i < 10; i++) autos.push(new Auto());
+    document.getElementById('nombre_autos').innerHTML = "Autos : " + autos.length;
+}
+
+function retirer_autos() {
+    let i;
+    if (autos.length > 10) {
+        for (i = 0; i < 10; i++) autos.pop();
+        document.getElementById('nombre_autos').innerHTML = "autos : " + autos.length;
+    }
+}
+
+function masquer_zoom() {
+    can3.style.display = 'none';
+    aff_zoom = false;
+}
+
+function montrer(id) {
+    document.getElementById(id).style.display = 'block';
+}
+
+function masquer(id) {
+    document.getElementById(id).style.display = 'none';
+}
+
+// ******* FIN DE GESTION DE L'INTERACTIVITE *********
+
+
+// ***********************************************************************
+// ******* MODULE DE VISUALISATION 3D utilise la librairie 3D p5.js ******
+//
+//   20 représente un facteur d'échelle. Il est utilisé en dur dans les calculs d'affichage.
+//
+//
+
+let decor3, 
+	decor4, 
+	molette, 
+	sca, 
+	VUE_AERIENNE,
+	BUILDINGS,
+	MAISONS,	
+	height2, 
+    height8, 
+	canW2x20,
+	canH2x20,
+	heure,
+	illum,
+	illum254;
+	
+let vid,  		// partie vidéo
+	VIDEO_PLAY,  
+	max_Larg_Ecran, 
+	max_Haut_Ecran,
+	vid_WIDTH,
+	vid_HEIGHT;
+
+function setup() {
+	createCanvas(canW, canH, WEBGL).id('plan3');
+    height2 = height / 2;
+	height8 = height / 8;
+	canW2x20 = -canW/2 * 20;
+	canH2x20 = -canH/2 * 20;
+	noStroke();
+    angleMode(DEGREES);
+	rectMode(CENTER);
+	noSmooth();
+
+    let nom_video;
+	nom_video = 'grange.mp4';
+	//nom_video = 'synchronicity.mp4';
+	//nom_video = 'walk.mp4';
+	
+	max_Larg_Ecran = cote * 10;
+	vid = createVideo('./VIDEOS/' + nom_video, afficher_VIDEO);
+	//vid = createCapture(VIDEO);  // récupérer le signal Webcam
+    //vid.size(320, 240);
+}
+
+function illuminer() {
+	illum = (12 - Math.abs(heure - 12)) * 21;
+    illum254 = illum / 254;
+}
+
+function keyTyped() {
+  switch(key) {
+     case '2': btn_sortie_3D(); break;
+	 case '3': btn_init_3D(); break;
+     case 'b': BUILDINGS = true;  MAISONS = false; break;
+     case 'm': BUILDINGS = false; MAISONS = true; molette = 0; break;
+     case 'a': btn_vue_aerienne(); break;
+     case 's': VUE_AERIENNE = false; break;
+	 case 'p': mettre_en_pause(); break;
+	 case '+': ajouter_autos(); break;
+	 case '-': retirer_autos(); break;
+	 case 'v': btn_video3D();
+  }
+  return false;
+}
+
+function mouseWheel(event) { 
+  molette += event.delta;
+  sca = .05 - molette/20000;
+  if (sca < .02) sca = .02;
+  return false;
+}
+
+function btn_init_3D() {
+	masquer("btn_menu2D"); 
+	masquer("le_menu2D"); 
+	masquer("btn_menu3D");
+    masquer('planX');
+	masquer('plan0');
+    masquer('plan1');
+    masquer('plan2');
+	masquer_zoom();
+	montrer('plan3');
+	montrer("le_menu3D"); 
+    decor4 = cx0.getImageData(h_auto / 2, h_auto / 2, canW, canH); // on crée la map en plan0 (cx0) --> decor4
+	dessiner_les_routes_2D(cx0);
+	creer_carrefours_2D(cx0);
+	creer_marquage3D(cx0);
+    creer_passage_pietons3D(cx0);
+    decor3 = cx0.getImageData(h_auto / 2, h_auto / 2, canW, canH); // on crée la partie urbaine --> decor3
+	heure = new Date().getHours();
+	illuminer(); // lumière en fonction de l'heure
+	BUILDINGS = false;
+	MAISONS = true;
+	MODE_3D = true;
+	VIDEO_PLAY = 0;
+	btn_vue_aerienne();
+	
+	function creer_passage_pietons3D(cx) {
+		let a, i, j;
+		const L = les_feux.length;;
+		for (a = 0; a < 2; a += 0.5) {
+			for (i = 0; i < L; i += 2) {
+				cx.save();
+				cx.translate(les_feux[i], les_feux[i + 1]);
+				cx.fillStyle = COUL_ROUTE;
+				cx.fillRect(-l5, -l5, lr, lr);
+				cx.rotate(a * Math.PI);
+				cx.fillStyle = '#ccc';
+				for (j = 1; j < 3; j+= 0.3) cx.fillRect(-lr + l5 * j, -l5 - h_auto, lr/12, h_auto);
+				cx.restore();
+			}
+		}    
+	}
+
+	function creer_marquage3D(cx) {
+		cx.strokeStyle ="#ddd";
+		let co, li, coo, lii;
+		for (li = 0; li < nbli; li++) {
+			for (co = 0; co < nbco; co++) {
+				coo = co * cote + lr;
+				lii = li * cote + lr;
+				switch (tab_routes[nbco * li + co]) {
+					case 1: cx.moveTo(coo, lii);
+							cx.lineTo(coo + cote, lii); break;
+					case 2: cx.moveTo(coo, lii);
+							cx.lineTo(coo, lii + cote); break;
+					case 3: cx.moveTo(coo, lii);
+							cx.lineTo(coo + cote, lii);
+							cx.moveTo(coo, lii);
+							cx.lineTo(coo, lii + cote);
+				}
+			}
+		}
+		cx.stroke();
+	}
+}
+
+function btn_sortie_3D() {
+    masquer("btn_menu3D"); 
+	masquer("le_menu3D"); 
+	masquer('plan3');
+	montrer("le_menu2D"); 
+    montrer('plan0');
+    montrer('plan2');
+	molette = 0;
+	MODE_3D = false;
+	vid.stop();
+	VIDEO_PLAY = 0;
+}
+
+function btn_vue_aerienne() {
+	VUE_AERIENNE = true;
+	camera();
+	resetMatrix();
+	molette = 0;
+	sca = 0.1;
+}
+
+function btn_video3D() {
+	VIDEO_PLAY     = 1 - VIDEO_PLAY;
+	if (VIDEO_PLAY) {
+		max_Haut_Ecran = max_Larg_Ecran * vid.height / vid.width;
+		vid_WIDTH  = max_Larg_Ecran * .9;
+		vid_HEIGHT = max_Haut_Ecran * .9;
+		heure      = 21;
+		vid.play();		
+	}
+	else {
+		heure = new Date().getHours();
+		vid.pause();
+	}
+	illuminer();
+}
+
+function orienter3D() {
+	if (VUE_AERIENNE) {
+		scale(sca);
+		let angl = mouseY - height2;
+		if (angl > -20)  angl = -20;  // bloque la vue verticale
+		if (angl < -360) angl = -360; //
+		translate(0, angl, 0);
+		rotateX((angl) * .25); 
+		rotateY(mouseX * .25);
+    }
+    else { // vue subjective
+		let dirX, dirZ;
+		let auto_virtu = autos[0];
+		const x = (auto_virtu.xx - canW2) * 20;
+		const z = (auto_virtu.yy - canH2) * 20;
+		switch(auto_virtu.dir) {
+			case 1: dirX = 0;   dirZ = -90; break;
+			case 2: dirX = 90;  dirZ = 0;   break;
+			case 4: dirX = 0;   dirZ = 90;  break;
+			case 8: dirX = -90; dirZ = 0; 
+		}
+		camera(x, -height8, z, x + dirX, -height8 + molette/25, z + dirZ, 0, 1, 0);
+	}
+}
+
+function afficher_deco3D() {
+	afficher_plan3D();
+    afficher_les_feux3D();
+    afficher_arbres3D();
+	afficher_buildings3D();
+	afficher_maisons3D();
+	afficher_VIDEO();
+	
+	function afficher_plan3D() {
+		background(illum * .25, illum * .5, illum);
+		if (VUE_AERIENNE) {
+			afficher_soleil3D();
+			texture(decor4);  // plan du réseau sans les routes pour meubler
+		}
+		else fill(40);
+		box(80000, 1, 80000);
+		texture(decor3);  // plan du réseau réel
+		box(canW * 20, 4, canH * 20);
+		
+		function afficher_soleil3D() {
+			if (heure < 8 || heure > 18) return; // pas de soleil
+			push();
+			translate(6000, -5000 + heure *100, -12000);
+			fill('yellow');
+			ellipsoid(200);
+			pop();
+		}
+	}
+	
+	function afficher_les_feux3D() {
+		if (type_feu === 2) return;  // pas de feux
+		push();
+			translate(canW2x20, 0, canH2x20);
+			let i, d = l5 * 28;
+			const L = les_feux.length;
+			for (i = 0; i < L; i += 2) {
+			push();
+				translate(les_feux[i] * 20, 0, les_feux[i + 1] * 20);
+				push();
+					translate(-d, 0, -d );
+					dessiner_les_feux(type_feu * 255);
+				pop();
+				push();
+					translate(d, 0, d );
+					dessiner_les_feux(type_feu * 255);
+				pop();
+				push();
+					translate(-d, 0, d );
+					dessiner_les_feux((1 - type_feu) * 255);
+				pop();
+				push();
+					translate(d, 0, -d );
+					dessiner_les_feux((1 - type_feu) * 255);
+				pop();
+			pop();
+			}
+		pop();
+    
+		function dessiner_les_feux(x) {
+			translate(0, 0, 0);
+			fill(30);
+			box(20, 300, 20);
+			switch (type_feu) {
+				case 0: fill(255 - x, x, 0);
+				case 1: fill(x, 255 - x, 0); break;
+			}
+			translate(0, -160, 0);
+			box(30, 40, 30);
+		}
+	}
+	
+	function afficher_arbres3D() {
+		let i, h; 
+		const L = arbres.length;
+		push();
+		translate(canW2x20, 0, canH2x20);
+		for (i = 0; i < L - 4; i +=4) {
+			h = arbres[i + 2] * 4;
+			push();
+			translate(arbres[i] * 20, -h/2, arbres[i + 1] * 20);
+			fill(50, 50, 10);
+			box(h/3, -h * 4, h/3);
+			translate(0, -h * 3.5, 0);
+			fill(20, arbres[i + 3] * illum254, 20);
+			ellipsoid(h, arbres[i + 3], h);
+			pop();
+		}
+		pop();
+	}
+	
+	function afficher_buildings3D() {
+		if (BUILDINGS === false) return;
+		let i, j, h;
+		const L = buildings.length;
+		const h_etage = lr * 4;
+		push();
+		translate(canW2x20, 0, canH2x20);
+		for (i = 0; i < L - 5; i +=6) {
+			h = buildings[i + 4] * 20;
+			push();
+			translate(buildings[i] * 20, -h/2, buildings[i + 1] * 20);
+			fill(buildings[i + 5] * 250 * illum254);
+			box(buildings[i + 2] * 5, h, buildings[i + 3] * 5);
+			translate(0, -h/2, 0);
+			if (buildings[i + 5] > .2) {
+				fill(255 * illum254);
+			}
+			else {
+				fill(200, 200, 0);
+			}
+			for (j = 0; j < 5; j++) {
+				translate(0, h_etage, 0);
+				box(buildings[i + 2] * 5.5, h_etage / 2, buildings[i + 3] * 5.5);
+			}
+			pop();
+		}
+		pop();
+	}
+	
+	function afficher_maisons3D() {
+		if (MAISONS === false) return;
+		let i, w, h;
+		const h0 = lr * 4; 
+		const L = buildings.length; // on utilse toujours ce tableau d'emplacement des immeubles
+		push();
+		translate(canW2x20, 0, canH2x20);
+		for (i = 0; i < L - 5; i +=6) {
+			push();
+			w = buildings[i + 2] * 4;
+			h = w/2;
+			translate(buildings[i] * 20, -h0 /2 , buildings[i + 1] * 20);
+			fill(255 * illum254);
+			rotateY((w > 500) * 90);
+			box(w, h0, h);
+			fill(180 * illum254);
+			translate(w / 4, 0, 0); // porte
+			box(w * .1, h0 * .8, h + 10);
+			fill(buildings[i] % 255, 200, 50 + random(200)); // couleur pseudo-aléatoire de fenêtre
+			translate(-w / 2, 0, 0); // fenêtre
+			box(w * .4, h0 * .8, h + 10);  
+			translate(w / 4, -h /2.9, 0); // toit
+			rotateX(45);
+			fill(200 * illum254, 40 * illum254, 0);
+			box(w-2, h /1.414, h /1.414);
+			pop();
+		}
+		pop();
+	}
+}
+
+function afficher_VIDEO() {  // au centre de la map
+	push();
+	translate(canW2x20 + centre_ville_x * 22, -max_Haut_Ecran / 1.5, canH2x20 + centre_ville_y * 22);
+	if (VIDEO_PLAY) {
+		texture(vid);}
+	else {
+		fill(210);
+	}
+	plane(vid_WIDTH, vid_HEIGHT);
+	fill('black');
+	translate(0, 0, -20-lr);
+	box(max_Larg_Ecran, max_Haut_Ecran, lr);
+	pop();
+}
+
+function afficher_autos3D() {
+    let auto, x, z, couleur;
+	translate(canW2x20, 0, canH2x20);
+	for (auto of autos) {
+		couleur = auto.couleur;
+		push();
+		translate(auto.xx * 20, 0, auto.yy * 20);
+		switch (auto.dir) {
+			case 1: rotateY(90); break;
+			//case 2: rotateY(0); break;
+			case 4: rotateY(-90); break;
+			case 8: rotateY(180);
+		}
+		scale(h_auto / 14);
+		switch (auto.modele) {
+			case 0:  // auto carrée
+			for (z =-2; z < 3; z += 4) {    // roues et jantes
+				for (let x = -2; x < 3; x+= 4) {
+					push();
+					translate(-x*50, -50, -z*40);
+					fill(20);
+					torus(40, 10);
+					fill(200);
+					ellipsoid(20, 20, 5); 
+					pop();
+				}
+			}       
+			translate(0, -80);     // carrosserie 
+			fill(couleur);
+			box(260, 60, 120);             
+			fill(180);             // habitacle
+			translate(0, -30);
+			box(80);
+			fill(couleur);
+			translate(0, -40);
+			box(110, -10, 85);
+			fill(200, 200, 0);     // phares
+			translate(130, 50, 60);    
+			box(20);
+			translate(0, 0, -120);
+			box(20);
+			break;
+			
+			case 1: // auto ronde
+			for (z =-2; z < 3; z += 4) { // roues et jantes
+				for (let x = -2; x < 3; x+= 4) {
+					push();
+					translate(-x*50, -50, -z*55);
+					fill(20);
+					torus(40, 10);
+					fill(200);
+					ellipsoid(20, 20, 5); 
+					pop();
+				}
+			}         
+			translate(0, -80);           // carrosserie
+			fill(couleur);
+			ellipsoid(200, 60, 120);             
+			fill(220);                   // habitacle
+			translate(0, -30);
+			ellipsoid(100, 80, 80);     
+			fill(200, 200, 0);           // phares
+			translate(170, 20, 60);    
+			box(20);
+			translate(0, 0, -120);
+			box(20);
+			break;
+			
+			case 2: // moto 1
+			for (x =-2; x < 3; x += 4) {  // roues et jantes
+				push();
+				translate(-x*50, -50, 0);
+				fill(20);
+				torus(40, 10);
+				fill(couleur);
+				ellipsoid(20, 20, 5); 
+				pop();
+			}     
+			translate(0, -80);  // carrosserie
+			fill(couleur);
+			box(140, 80, 40);
+			fill(180);          // habitacle
+			translate(0, -60);
+			box(60);
+			break;
+			
+			case 3: // moto 2
+			for (x =-2; x < 3; x += 4) {   // roues et jantes
+				push();
+				translate(-x*50, -50, 0);
+				fill(20);
+				torus(40, 10);
+				fill(200);
+				ellipsoid(20, 20, 5); 
+				pop();
+			}              
+			translate(0, -80);  // carrosserie
+			fill(couleur);
+			box(140, 80, 40);
+			fill(230);          // habitacle
+			translate(0, -50);
+			sphere(40);
+		}
+        pop();
+    }
+}
+
+// ******* FIN DU MODULE DE VISUALISATION 3D ********
+// **************************************************
+
+</script>
+</head>
+<body>
+
+<canvas id = 'planX'>Ce navigateur n'aime pas HTML 5...</canvas>
+<canvas id = 'plan0'></canvas>
+<canvas id = 'plan1'></canvas>
+<canvas id = 'plan2' onclick = 'choisir_auto(event);'></canvas>
+<canvas id = 'zoom'  onclick = 'masquer_zoom();'></canvas>
+
+<button id = 'btn_menu2D' onclick = 'montrer("le_menu2D"); masquer("btn_menu2D");'>Réglages 2D</button>
+<button id = 'btn_menu3D' onclick = 'montrer("le_menu3D"); masquer("btn_menu3D");'>Réglages 3D</button>
+
+<div id = 'le_menu2D'>
+    <button id = 'btn_fermer2D' onclick = 'masquer("le_menu2D"); montrer("btn_menu2D");'>x</button><br/><br/>
+    <p id  = 'nombre_autos'></p>
+    <p id  = 'numero_autos'></p><br/>
+    <button onclick = 'mode_automatique_2D(6);'>Créer nouvelle ville</button><br/>
+	<button onclick = 'flag_deco = false; creer_arriere_plan_2D(cx0);'>Enlever la déco</button><br/>
+    <button onclick = 'flag_deco = true; creer_arriere_plan_2D(cx0);'>Changer la déco</button><br/>
+    <button onclick = 'retirer_autos();'>Enlever 10 autos</button><br/>
+    <button onclick = 'ajouter_autos();'>Ajouter 10 autos</button><br/>
+    <button onclick = 'mode_manuel_2D();'>Modifier la ville</button><br/>
+    <button id = 'fire' onclick = 'feux();'>Enlever les feux</button><br/>
+    <button id = 'btn_pause' onclick = 'mettre_en_pause();'>Mettre en pause</button><br/>
+	<button onclick = 'btn_init_3D();'>Mode 3D</button>
+</div>
+
+<div id = 'le_menu3D'>
+	<button id = 'btn_fermer3D' onclick = 'masquer("le_menu3D"); montrer("btn_menu3D");'>x</button><br/><br/><br/>
+	<button onclick = 'btn_vue_aerienne()'>Vue aérienne</button><br/>
+	<button onclick = 'VUE_AERIENNE = false; molette = 0;'>Vue auto</button><br/>
+	<button onclick = 'BUILDINGS = true; MAISONS = false;'>Immeubles</button><br/>
+	<button onclick = 'BUILDINGS = false; MAISONS = true; molette = 0;'>Maisons</button><br/>
+	<button onclick = 'btn_video3D();'>Vidéo</button><br/>
+	<button onclick = 'btn_sortie_3D();'>Mode 2D</button>
+</div>
+
+<div id = 'le_menu_edition'>
+	<button onclick = 'effacer_plan_2D();'>Tout effacer</button><br/>
+	<button onclick = 'valider_routes_2D();'>Créer la ville</button>
+</div>
+
+<script>
+'use strict';
+const canX = document.getElementById('planX'); // plan routes seules
+const cxX  = canX.getContext('2d');
+const can0 = document.getElementById('plan0'); // arrière_plan
+const cx0  = can0.getContext('2d');
+const can1 = document.getElementById('plan1'); // calque de modification
+const cx1  = can1.getContext('2d');
+const can2 = document.getElementById('plan2'); // plan 2D  : il existe ausi plan3 pour la vue3D
+const cx2  = can2.getContext('2d');
+const can3 = document.getElementById('zoom');  // zoom
+const cx3  = can3.getContext('2d');
+
+function draw() { 
+    visualiser_2D();
+    if (MODE_3D) {
+		orienter3D();
+		afficher_deco3D();
+		afficher_autos3D();
+	}
+}
+
+mode_automatique_2D(6);
+
+</script>
+</body>
+</html>
